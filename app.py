@@ -1,24 +1,42 @@
 # Import necessary modules from SQLAlchemy:
 import datetime
+import os
 from typing import List
 
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Numeric, create_engine, Integer, String, ForeignKey, Boolean, func, select
-from sqlalchemy.orm import sessionmaker, Mapped, mapped_column, DeclarativeBase, relationship
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from flask_marshmallow import Marshmallow
+from sqlalchemy import Column, Numeric, Integer, String, ForeignKey, Table, func, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.exc import IntegrityError
 
 # Create a Flask app and configure the database
 app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = "mysql+mysqlconnector://root:hdr13@localhost/ecommerce_api"
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
+    "DATABASE_URL",
+    "mysql+mysqlconnector://root:hdr13@localhost/ecommerce_api",
+)
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# Create a Flask-SQLAlchemy db instance
-db = SQLAlchemy(app)
-
-# Define a declarative base
+# Creating our Base Model
 class Base(DeclarativeBase):
     pass
+
+# Initialize SQLAlchemy and Marshmallow
+db = SQLAlchemy(model_class=Base)
+db.init_app(app)
+ma = Marshmallow(app)
+
+# Use Flask-SQLAlchemy's base class
+Base = db.Model
+
+# Association Table for Many-to-Many relationship between Orders and Products
+order_product = Table(
+    "order_products",
+    Base.metadata,
+    Column("order_id", Integer, ForeignKey('orders.id'), primary_key=True),
+    Column("product_id", Integer, ForeignKey('products.id'), primary_key=True)
+)
 
 # DATABASE MODELS
 # User Table
@@ -66,26 +84,33 @@ class Order_Product(Base):
 from marshmallow import Schema, ValidationError, fields
 
 # User Schema
-class users_schema(Schema):
-    id = fields.Int(dump_only=True)
-    name = fields.Str(required=True)
-    address = fields.Str()
-    email = fields.Email(required=True)
-    orders = fields.Nested('orders_schema', many=True, exclude=('user',))
+class UserSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = User
+        include_relationships = True
+        load_instance = True
     
 # Order Schema
-class orders_schema(Schema):
-    id = fields.Int(dump_only=True)
-    order_date = fields.DateTime(dump_only=True)
-    user_id = fields.Int(required=True)
-    products = fields.Nested('products_schema', many=True, exclude=('orders',))
-    
+class OrderSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = Order
+        include_relationships = True
+        load_instance = True
+        include_fk = True
+        
 # Product Schema
-class product_schema(Schema):
-    id = fields.Int(dump_only=True)
-    product_name = fields.Str(required=True)
-    price = fields.Float(required=True)
-    orders = fields.Nested('orders_schema', many=True, exclude=('products',))
+class ProductSchema(ma.SQLAlchemyAutoSchema):
+    class Meta:
+        model = Product
+        include_relationships = True
+        load_instance = True
+
+user_schema = UserSchema()
+users_schema = UserSchema(many=True)
+order_schema = OrderSchema()
+orders_schema = OrderSchema(many=True)
+product_schema = ProductSchema()
+products_schema = ProductSchema(many=True)
     
 # Creating a runner function
 if __name__ == '__main__': # Ensures this block runs only when the script is executed directly
@@ -116,13 +141,13 @@ def get_user(user_id):
     if user is None:
         return jsonify({"message": "User not found"}), 400
 
-    return users_schema.jsonify(user), 200
+    return user_schema.jsonify(user), 200
 
  # POST /users: Create a new user
 @app.route('/users', methods=['POST'])
 def create_user():
     try:
-        user_data = users_schema.load(request.json)
+        user_data = user_schema.load(request.json)
     except ValidationError as err:
         return jsonify(err.messages), 400
     
@@ -134,7 +159,7 @@ def create_user():
         db.session.rollback()
         return jsonify({"message": "Error creating user", "error": str(e)}), 500    
     
-    return users_schema.jsonify(new_user), 200
+    return user_schema.jsonify(new_user), 200
 
 # PUT /users/<user_id>: Update an existing user
 @app.route('/users/<int:user_id>', methods=['PUT']) 
@@ -145,7 +170,7 @@ def update_user(user_id):
         return jsonify({"message": "user not found"}), 400
     
     try:
-        user_data = users_schema.load(request.json)
+        user_data = user_schema.load(request.json)
     except ValidationError as err:
         return jsonify(err.messages), 400
     
@@ -158,7 +183,7 @@ def update_user(user_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"message": "Error updating user", "error": str(e)}), 500
-    return users_schema.jsonify(user), 200
+    return user_schema.jsonify(user), 200
     
 # DELETE /users/<user_id>: Delete a user
 @app.route('/users/<int:id>', methods=['DELETE']) 
@@ -187,7 +212,7 @@ def get_products():
     if not products:
         return jsonify({"message": "No products found"}), 400
     
-    return product_schema.jsonify(products), 200
+    return products_schema.jsonify(products), 200
 
 # GET /products/<id>: Retrieve a product by ID
 @app.route('/products/<int:id>', methods=['GET'])
@@ -199,6 +224,7 @@ def get_product(id):
         return jsonify({"message": "Product not found"}), 400
     
     return product_schema.jsonify(product), 200
+
 
 # POST /products: Create a new product
 @app.route('/products', methods=['POST'])
@@ -263,7 +289,7 @@ def delete_product(id):
 @app.route('/orders', methods=['POST'])
 def create_order():
     try:
-        order_data = orders_schema.load(request.json)
+        order_data = order_schema.load(request.json)
     except ValidationError as err:
         return jsonify(err.messages), 400
     
@@ -276,7 +302,7 @@ def create_order():
         db.session.rollback()
         return jsonify({"message": "Error creating order", "error": str(e)}), 500
     
-    return orders_schema.jsonify(new_order), 200
+    return order_schema.jsonify(new_order), 200
 
 # PUT /orders/<order_id>/add_product/<product_id>: Add a product to an order (prevent duplicates)
 @app.route('/orders/<int:order_id>/add_product/<int:product_id>', methods=['PUT'])
@@ -351,4 +377,4 @@ def get_products_by_order(order_id):
     if not products:
         return jsonify({"message": "No products found for this order"}), 400
     
-    return product_schema.jsonify(products), 200
+    return products_schema.jsonify(products), 200
