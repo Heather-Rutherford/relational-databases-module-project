@@ -30,14 +30,6 @@ ma = Marshmallow(app)
 # Use Flask-SQLAlchemy's base class
 Base = db.Model
 
-# Association Table for Many-to-Many relationship between Orders and Products
-order_product = Table(
-    "order_products",
-    Base.metadata,
-    Column("order_id", Integer, ForeignKey('orders.id'), primary_key=True),
-    Column("product_id", Integer, ForeignKey('products.id'), primary_key=True)
-)
-
 # DATABASE MODELS
 # User Table
 class User(Base):
@@ -72,7 +64,13 @@ class Product(Base):
     
     # Relationship to Orders
     orders: Mapped[List["Order"]] = relationship(secondary='order_products', back_populates="products")
-    
+
+# Order_Product Association Table
+class Order_Product(Base):
+    __tablename__ = 'order_products'
+    order_id: Mapped[int] = mapped_column(ForeignKey('orders.id'), primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey('products.id'), primary_key=True)
+
 # MARSHMALLOW SCHEMAS
 # Import necessary modules from Marshmallow
 from marshmallow import Schema, ValidationError, fields, validate
@@ -82,7 +80,6 @@ class UserSchema(ma.SQLAlchemyAutoSchema):
     class Meta:
         model = User
         include_relationships = True
-        load_instance = True
     
     id = fields.Int(dump_only=True)
     name = fields.Str(required=True, validate=validate.Length(min=1, max=100))
@@ -94,7 +91,6 @@ class OrderSchema(ma.SQLAlchemyAutoSchema):
     class Meta:
         model = Order
         include_relationships = True
-        load_instance = True
         include_fk = True
  
     id = fields.Int(dump_only=True)
@@ -107,12 +103,11 @@ class ProductSchema(ma.SQLAlchemyAutoSchema):
     class Meta:
         model = Product
         include_relationships = True
-        load_instance = True
 
     id = fields.Int(dump_only=True)
     product_name = fields.Str(required=True, validate=validate.Length(min=1, max=100))
     price = fields.Decimal(required=True, as_string=True, validate=validate.Range(min=0))
-    
+
 # Initialize Schemas
 user_schema = UserSchema()
 users_schema = UserSchema(many=True)
@@ -120,13 +115,6 @@ order_schema = OrderSchema()
 orders_schema = OrderSchema(many=True)
 product_schema = ProductSchema()
 products_schema = ProductSchema(many=True)
-    
-# Creating a runner function
-if __name__ == '__main__': # Ensures this block runs only when the script is executed directly
-    with app.app_context():  # Create an application context
-        db.create_all()  # Create all tables in the database
-        # Base.metadata.drop_all(db.engine)  # Uncomment to drop all tables in the database
-    app.run(debug=True)  # Start the Flask development server with debug mode enabled
 
 # IMPLEMENT CRUD ENDPOINTS
 # User Endpoints
@@ -159,7 +147,12 @@ def create_user():
     except ValidationError as err:
         return jsonify(err.messages), 422
     
-    new_user = User(name=user_data['name'], address=user_data.get('address'), email=user_data['email'])
+    new_user = User(
+        name=user_data['name'],
+        address=user_data['address'],
+        email=user_data['email']
+    )
+    
     db.session.add(new_user)
     try:
         db.session.commit()
@@ -384,3 +377,14 @@ def get_products_by_order(order_id):
         return jsonify({"message": "No products found for this order."}), 404
     
     return products_schema.jsonify(products), 200
+
+@app.route("/ping")
+def ping():
+    return {"message": "pong"}
+
+# Creating a runner function
+if __name__ == '__main__': # Ensures this block runs only when the script is executed directly
+    with app.app_context():  # Create an application context
+        db.create_all()  # Create all tables in the database
+        app.run(debug=True)  # Start the Flask development server with debug mode enabled
+        # Base.metadata.drop_all(db.engine)  # Uncomment to drop all tables in the database
