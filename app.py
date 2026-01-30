@@ -53,7 +53,7 @@ class Order(Base):
     user: Mapped['User'] = relationship(back_populates="orders")
     
     # Relationship to Products
-    products: Mapped[List["Product"]] = relationship(secondary='order_products', back_populates="orders")
+    products: Mapped[List["Product"]] = relationship(secondary='order_product', back_populates="orders")
       
 # Product Table
 class Product(Base):
@@ -63,11 +63,11 @@ class Product(Base):
     price: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     
     # Relationship to Orders
-    orders: Mapped[List["Order"]] = relationship(secondary='order_products', back_populates="products")
+    orders: Mapped[List["Order"]] = relationship(secondary='order_product', back_populates="products")
 
 # Order_Product Association Table
 class Order_Product(Base):
-    __tablename__ = 'order_products'
+    __tablename__ = 'order_product'
     order_id: Mapped[int] = mapped_column(ForeignKey('orders.id'), primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey('products.id'), primary_key=True)
 
@@ -94,9 +94,9 @@ class OrderSchema(ma.SQLAlchemyAutoSchema):
         include_fk = True
  
     id = fields.Int(dump_only=True)
-    order_date = fields.DateTime(dump_only=True)
+    order_date = fields.DateTime(required=True)
     user_id = fields.Int(required=True)
-    products = fields.List(fields.Int(), dump_only=True)  # or nested ProductSchema
+    products = fields.Pluck("ProductSchema", "id", many=True, dump_only=True)
        
 # Product Schema
 class ProductSchema(ma.SQLAlchemyAutoSchema):
@@ -140,6 +140,7 @@ def get_user(user_id):
     return user_schema.jsonify(user), 200
 
  # POST /users: Create a new user
+
 @app.route('/users', methods=['POST'])
 def create_user():
     try:
@@ -227,7 +228,6 @@ def get_product(id):
     
     return product_schema.jsonify(product), 200
 
-
 # POST /products: Create a new product
 @app.route('/products', methods=['POST'])
 def create_product():
@@ -295,7 +295,14 @@ def create_order():
     except ValidationError as err:
         return jsonify(err.messages), 422
     
-    new_order = Order(user_id=order_data['user_id'], order_date=datetime.datetime.now())
+    try:
+        user = db.session.get(User, order_data['user_id']) # Returns a User object or None
+        if user is None:
+            return jsonify({"message": "User not found."}), 404
+    except Exception as e:
+        return jsonify({"message": "Error retrieving user.", "error": str(e)}), 500
+    
+    new_order = Order(user_id=order_data['user_id'], order_date=order_data['order_date'])
     
     db.session.add(new_order)
     try:
@@ -317,7 +324,7 @@ def add_product_to_order(order_id, product_id):
    product = db.session.get(Product, product_id) # Returns a Product object or None
    
    if product is None:
-       return jsonify({"message": "Product not found in order."}), 404
+       return jsonify({"message": "Product not found."}), 404
    
    new_order_product = Order_Product(order_id=order_id, product_id=product_id)
    
@@ -331,7 +338,7 @@ def add_product_to_order(order_id, product_id):
        db.session.rollback()
        return jsonify({"message": "Error adding product to order.", "error": str(e)}), 500
    
-   return orders_schema.jsonify(order), 201
+   return order_schema.jsonify(order), 201
 
 # DELETE /orders/<order_id>/remove_product/<product_id>: Remove a product from an order
 @app.route("/orders/<int:order_id>/remove_product/<int:product_id>", methods=['DELETE'])
@@ -377,10 +384,6 @@ def get_products_by_order(order_id):
         return jsonify({"message": "No products found for this order."}), 404
     
     return products_schema.jsonify(products), 200
-
-@app.route("/ping")
-def ping():
-    return {"message": "pong"}
 
 # Creating a runner function
 if __name__ == '__main__': # Ensures this block runs only when the script is executed directly
