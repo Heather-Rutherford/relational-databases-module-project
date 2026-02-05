@@ -94,7 +94,7 @@ class OrderSchema(ma.SQLAlchemyAutoSchema):
         include_fk = True
  
     id = fields.Int(dump_only=True)
-    order_date = fields.DateTime(required=True)
+    order_date = fields.DateTime(dump_only=True)
     user_id = fields.Int(required=True)
     products = fields.Pluck("ProductSchema", "id", many=True, dump_only=True)
        
@@ -203,7 +203,7 @@ def delete_user(user_id):
         db.session.rollback()
         return jsonify({"message": "Error deleting user.", "error": str(e)}), 500
     
-    return jsonify({"message": f"User deleted successfully {user_id}."}), 204
+    return jsonify({"message": f"User deleted successfully {user_id}."}), 200
 
 # Product Endpoints
 
@@ -283,7 +283,7 @@ def delete_product(id):
         db.session.rollback()
         return jsonify({"message": "Error deleting product.", "error": str(e)}), 500
     
-    return jsonify({"message": "Product deleted successfully."}), 204
+    return jsonify({"message": "Product deleted successfully."}), 200
 
 # Order Endpoints
 
@@ -302,7 +302,8 @@ def create_order():
     except Exception as e:
         return jsonify({"message": "Error retrieving user.", "error": str(e)}), 500
     
-    new_order = Order(user_id=order_data['user_id'], order_date=order_data['order_date'])
+    new_order = Order(user_id=order_data['user_id']) # order_date is auto-set to current timestamp
+                                                       # , order_date=order_data['order_date']
     
     db.session.add(new_order)
     try:
@@ -359,7 +360,7 @@ def remove_product_from_order(order_id, product_id):
         db.session.rollback()
         return jsonify({"message": "Error removing product from order.", "error": str(e)}), 500
 
-    return jsonify({"message": "Product removed from order successfully."}), 204
+    return jsonify({"message": "Product removed from order successfully."}), 200
 
 # GET /orders/user/<user_id>: Get all orders for a user
 @app.route('/orders/user/<int:user_id>', methods=['GET'])
