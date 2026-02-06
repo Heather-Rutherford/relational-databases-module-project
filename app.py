@@ -90,7 +90,7 @@ class UserSchema(ma.SQLAlchemyAutoSchema):
 class OrderSchema(ma.SQLAlchemyAutoSchema):
     class Meta:
         model = Order
-        include_relationships = True
+        include_relationships = False
         include_fk = True
  
     id = fields.Int(dump_only=True)
